@@ -27,8 +27,6 @@ int main (int argc, char *argv[])
      std::cout << "Device memory bus width: " << prop.memoryBusWidth << " bits" << std::endl;
      float peakBandwidth = 2.0 * prop.memoryClockRate * prop.memoryBusWidth / 8.0 * 1e-6;
      std::cout << "Device theoretical peak bandwidth: " << peakBandwidth << " GB/s" << std::endl;
-
-
   }
   std::cout << "-------------------------------------\n";
 

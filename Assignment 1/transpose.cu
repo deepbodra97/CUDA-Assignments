@@ -66,6 +66,28 @@ __global__ void copy(float *odata, const float *idata)
     odata[(y+j)*width + x] = idata[(y+j)*width + x];
 }
 
+// optimized copy kernel
+__global__ void copyOptimized(float* odata, const float* idata)
+{
+    /*
+    why low bandwidth? 12GB/s
+    int x = blockIdx.x * TILE_DIM + threadIdx.x;
+    int y = blockIdx.y * TILE_DIM + threadIdx.y;
+    int width = gridDim.x * TILE_DIM;
+
+    odata[y * width + x] = idata[y * width + x];*/
+    /*
+    no improvement
+    int x = blockIdx.x * TILE_DIM + threadIdx.x;
+    int y = blockIdx.y * TILE_DIM + threadIdx.y;
+    int width = gridDim.x * TILE_DIM;
+
+    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+        odata[(y + j) * width + x] = idata[(y + j) * width + x];
+        __syncthreads();
+    }*/
+}
+
 // Simplest transpose
 __global__ void transposeNaive(float *odata, const float *idata)
 {
@@ -161,6 +183,23 @@ int main(int argc, char *argv[])
   cudaCheck( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
   cudaCheck( cudaMemcpy(h_cdata, d_cdata, mem_size, cudaMemcpyDeviceToHost) );
   postprocess(h_idata, h_cdata, nx*ny, ms);
+
+  // ----
+  // copy optimized
+  // ----
+  //dim3 dimBlock2(TILE_DIM, TILE_DIM, 1);
+  printf("%25s", "copyOptimized");
+  cudaCheck(cudaMemset(d_cdata, 0, mem_size));
+  // warm up
+  copyOptimized << <dimGrid, dimBlock >> > (d_cdata, d_idata);
+  cudaCheck(cudaEventRecord(startEvent, 0));
+  for (int i = 0; i < NUM_REPS; i++)
+      copyOptimized << <dimGrid, dimBlock >> > (d_cdata, d_idata);
+  cudaCheck(cudaEventRecord(stopEvent, 0));
+  cudaCheck(cudaEventSynchronize(stopEvent));
+  cudaCheck(cudaEventElapsedTime(&ms, startEvent, stopEvent));
+  cudaCheck(cudaMemcpy(h_cdata, d_cdata, mem_size, cudaMemcpyDeviceToHost));
+  postprocess(h_idata, h_cdata, nx * ny, ms);
 
   // --------------
   // transposeNaive 
