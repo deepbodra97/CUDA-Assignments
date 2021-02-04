@@ -86,6 +86,21 @@ __global__ void copyOptimized(float* odata, const float* idata)
         odata[(y + j) * width + x] = idata[(y + j) * width + x];
         __syncthreads();
     }*/
+
+
+    __shared__ float cache[TILE_DIM * TILE_DIM];
+
+    int x = blockIdx.x * TILE_DIM + threadIdx.x;
+    int y = blockIdx.y * TILE_DIM + threadIdx.y;
+    int width = gridDim.x * TILE_DIM;
+
+    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
+        cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x] = idata[(y + j) * width + x];
+
+    __syncthreads();
+
+    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
+        odata[(y + j) * width + x] = cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x];
 }
 
 // Simplest transpose
