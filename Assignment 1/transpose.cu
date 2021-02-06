@@ -114,6 +114,34 @@ __global__ void transposeNaive(float *odata, const float *idata)
     odata[x*width + (y+j)] = idata[(y+j)*width + x];
 }
 
+// Optimized transpose
+__global__ void transposeOptimized(float* odata, const float* idata)
+{
+    __shared__ float cache[TILE_DIM][TILE_DIM];
+
+    int x = blockIdx.x * TILE_DIM + threadIdx.x;
+    int y = blockIdx.y * TILE_DIM + threadIdx.y;
+    int width = gridDim.x * TILE_DIM;
+
+    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
+        cache[threadIdx.y + j][threadIdx.x] = idata[(y + j) * width + x];
+
+    __syncthreads();
+
+    x = blockIdx.y * TILE_DIM + threadIdx.x;
+    y = blockIdx.x * TILE_DIM + threadIdx.y;
+
+    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
+        odata[(y + j)*width+x] = cache[threadIdx.x][threadIdx.y+j];
+
+    // thread at (x,y) loads output for (y, x) 
+    /*x = blockIdx.y * TILE_DIM + threadIdx.y;
+    y = blockIdx.x * TILE_DIM + threadIdx.x;
+
+    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
+        odata[y* width + x + j] = cache[threadIdx.y+j][threadIdx.x];*/
+}
+
 int main(int argc, char *argv[])
 {
 
@@ -230,6 +258,22 @@ int main(int argc, char *argv[])
   cudaCheck( cudaEventSynchronize(stopEvent) );
   cudaCheck( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
   cudaCheck( cudaMemcpy(h_tdata, d_tdata, mem_size, cudaMemcpyDeviceToHost) );
+  postprocess(gold, h_tdata, nx * ny, ms);
+
+  // --------------
+  // transposeOptimized 
+  // --------------
+  printf("%25s", "optimized transpose");
+  cudaCheck(cudaMemset(d_tdata, 0, mem_size));
+  // warmup
+  transposeOptimized << <dimGrid, dimBlock >> > (d_tdata, d_idata);
+  cudaCheck(cudaEventRecord(startEvent, 0));
+  for (int i = 0; i < NUM_REPS; i++)
+      transposeOptimized << <dimGrid, dimBlock >> > (d_tdata, d_idata);
+  cudaCheck(cudaEventRecord(stopEvent, 0));
+  cudaCheck(cudaEventSynchronize(stopEvent));
+  cudaCheck(cudaEventElapsedTime(&ms, startEvent, stopEvent));
+  cudaCheck(cudaMemcpy(h_tdata, d_tdata, mem_size, cudaMemcpyDeviceToHost));
   postprocess(gold, h_tdata, nx * ny, ms);
 
 
