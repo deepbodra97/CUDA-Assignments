@@ -117,14 +117,14 @@ __global__ void transposeNaive(float *odata, const float *idata)
 // Optimized transpose
 __global__ void transposeOptimized(float* odata, const float* idata)
 {
-    __shared__ float cache[TILE_DIM][TILE_DIM+1];
+    __shared__ float cache[TILE_DIM*(TILE_DIM+1)];
 
     int x = blockIdx.x * TILE_DIM + threadIdx.x;
     int y = blockIdx.y * TILE_DIM + threadIdx.y;
     int width = gridDim.x * TILE_DIM;
 
     for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
-        cache[threadIdx.y + j][threadIdx.x] = idata[(y + j) * width + x];
+        cache[(threadIdx.y + j) * (TILE_DIM + 1) + threadIdx.x] = idata[(y + j) * width + x];
 
     __syncthreads();
 
@@ -132,14 +132,7 @@ __global__ void transposeOptimized(float* odata, const float* idata)
     y = blockIdx.x * TILE_DIM + threadIdx.y;
 
     for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
-        odata[(y + j)*width+x] = cache[threadIdx.x][threadIdx.y+j];
-
-    // thread at (x,y) loads output for (y, x) 
-    /*x = blockIdx.y * TILE_DIM + threadIdx.y;
-    y = blockIdx.x * TILE_DIM + threadIdx.x;
-
-    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
-        odata[y* width + x + j] = cache[threadIdx.y+j][threadIdx.x];*/
+        odata[(y + j) * width + x] = cache[threadIdx.x * (TILE_DIM + 1) + threadIdx.y + j];
 }
 
 int main(int argc, char *argv[])
