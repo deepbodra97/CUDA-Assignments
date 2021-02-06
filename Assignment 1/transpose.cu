@@ -117,7 +117,7 @@ __global__ void transposeNaive(float *odata, const float *idata)
 // Optimized transpose
 __global__ void transposeOptimized(float* odata, const float* idata)
 {
-    __shared__ float cache[TILE_DIM][TILE_DIM];
+    __shared__ float cache[TILE_DIM][TILE_DIM+1];
 
     int x = blockIdx.x * TILE_DIM + threadIdx.x;
     int y = blockIdx.y * TILE_DIM + threadIdx.y;
