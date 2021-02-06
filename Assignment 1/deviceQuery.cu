@@ -1,10 +1,7 @@
 #include <iostream>
 #include "cudaCheck.cuh"
 
-
-
-int main (int argc, char *argv[])
-{
+int main (int argc, char *argv[]) {
 
   int numDevices;
   cudaCheck( cudaGetDeviceCount(&numDevices));

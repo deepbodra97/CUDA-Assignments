@@ -25,10 +25,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/*This code has been adapted for CIS4930/CIS6930 Accelerated Computing with GPUs*/
-
-
-#include "device_launch_parameters.h"
+ /*This code has been adapted for CIS4930/CIS6930 Accelerated Computing with GPUs*/
 
 #include <stdio.h>
 #include <iostream>
@@ -40,245 +37,220 @@ const int BLOCK_ROWS = 8;
 const int NUM_REPS = 100;
 
 // Check errors and print GB/s
-void postprocess(const float *ref, const float *res, int n, float ms)
-{
-  bool passed = true;
-  for (int i = 0; i < n; i++)
-    if (res[i] != ref[i]) {
-      printf("%d %f %f\n", i, res[i], ref[i]);
-      printf("%25s\n", "*** FAILED ***");
-      passed = false;
-      break;
-    }
-  if (passed)
-    printf("%20.2f\n", 2 * n * sizeof(float) * 1e-6 * NUM_REPS / ms );
+void postprocess(const float* ref, const float* res, int n, float ms) {
+	bool passed = true;
+	for (int i = 0; i < n; i++)
+		if (res[i] != ref[i]) {
+			printf("%d %f %f\n", i, res[i], ref[i]);
+			printf("%25s\n", "*** FAILED ***");
+			passed = false;
+			break;
+		}
+	if (passed)
+		printf("%20.2f\n", 2 * n * sizeof(float) * 1e-6 * NUM_REPS / ms);
 }
 
 // simple copy kernel
 // Used as reference case representing best effective bandwidth.
-__global__ void copy(float *odata, const float *idata)
-{
-  int x = blockIdx.x * TILE_DIM + threadIdx.x;
-  int y = blockIdx.y * TILE_DIM + threadIdx.y;
-  int width = gridDim.x * TILE_DIM;
+__global__ void copy(float* odata, const float* idata) {
+	int x = blockIdx.x * TILE_DIM + threadIdx.x;
+	int y = blockIdx.y * TILE_DIM + threadIdx.y;
+	int width = gridDim.x * TILE_DIM;
 
-  for (int j = 0; j < TILE_DIM; j+= BLOCK_ROWS)
-    odata[(y+j)*width + x] = idata[(y+j)*width + x];
+	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
+		odata[(y + j) * width + x] = idata[(y + j) * width + x];
 }
 
 // optimized copy kernel
-__global__ void copyOptimized(float* odata, const float* idata)
-{
-    /*
-    why low bandwidth? 12GB/s
-    int x = blockIdx.x * TILE_DIM + threadIdx.x;
-    int y = blockIdx.y * TILE_DIM + threadIdx.y;
-    int width = gridDim.x * TILE_DIM;
+__global__ void copyOptimized(float* odata, const float* idata) {
+	__shared__ float cache[TILE_DIM * TILE_DIM];
 
-    odata[y * width + x] = idata[y * width + x];*/
-    /*
-    no improvement
-    int x = blockIdx.x * TILE_DIM + threadIdx.x;
-    int y = blockIdx.y * TILE_DIM + threadIdx.y;
-    int width = gridDim.x * TILE_DIM;
+	int x = blockIdx.x * TILE_DIM + threadIdx.x;
+	int y = blockIdx.y * TILE_DIM + threadIdx.y;
+	int width = gridDim.x * TILE_DIM;
 
-    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
-        odata[(y + j) * width + x] = idata[(y + j) * width + x];
-        __syncthreads();
-    }*/
+	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
+		cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x] = idata[(y + j) * width + x];
 
+	__syncthreads();
 
-    __shared__ float cache[TILE_DIM * TILE_DIM];
-
-    int x = blockIdx.x * TILE_DIM + threadIdx.x;
-    int y = blockIdx.y * TILE_DIM + threadIdx.y;
-    int width = gridDim.x * TILE_DIM;
-
-    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
-        cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x] = idata[(y + j) * width + x];
-
-    __syncthreads();
-
-    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
-        odata[(y + j) * width + x] = cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x];
+	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
+		odata[(y + j) * width + x] = cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x];
 }
 
 // Simplest transpose
-__global__ void transposeNaive(float *odata, const float *idata)
-{
-  int x = blockIdx.x * TILE_DIM + threadIdx.x;
-  int y = blockIdx.y * TILE_DIM + threadIdx.y;
-  int width = gridDim.x * TILE_DIM;
+__global__ void transposeNaive(float* odata, const float* idata) {
+	int x = blockIdx.x * TILE_DIM + threadIdx.x;
+	int y = blockIdx.y * TILE_DIM + threadIdx.y;
+	int width = gridDim.x * TILE_DIM;
 
-  for (int j = 0; j < TILE_DIM; j+= BLOCK_ROWS)
-    odata[x*width + (y+j)] = idata[(y+j)*width + x];
+	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
+		odata[x * width + (y + j)] = idata[(y + j) * width + x];
 }
 
 // Optimized transpose
-__global__ void transposeOptimized(float* odata, const float* idata)
-{
-    __shared__ float cache[TILE_DIM*(TILE_DIM+1)];
+__global__ void transposeOptimized(float* odata, const float* idata) {
+	__shared__ float cache[TILE_DIM * (TILE_DIM + 1)];
 
-    int x = blockIdx.x * TILE_DIM + threadIdx.x;
-    int y = blockIdx.y * TILE_DIM + threadIdx.y;
-    int width = gridDim.x * TILE_DIM;
+	int x = blockIdx.x * TILE_DIM + threadIdx.x;
+	int y = blockIdx.y * TILE_DIM + threadIdx.y;
+	int width = gridDim.x * TILE_DIM;
 
-    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
-        cache[(threadIdx.y + j) * (TILE_DIM + 1) + threadIdx.x] = idata[(y + j) * width + x];
+	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
+		cache[(threadIdx.y + j) * (TILE_DIM + 1) + threadIdx.x] = idata[(y + j) * width + x];
 
-    __syncthreads();
+	__syncthreads();
 
-    x = blockIdx.y * TILE_DIM + threadIdx.x;
-    y = blockIdx.x * TILE_DIM + threadIdx.y;
+	x = blockIdx.y * TILE_DIM + threadIdx.x;
+	y = blockIdx.x * TILE_DIM + threadIdx.y;
 
-    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
-        odata[(y + j) * width + x] = cache[threadIdx.x * (TILE_DIM + 1) + threadIdx.y + j];
+	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
+		odata[(y + j) * width + x] = cache[threadIdx.x * (TILE_DIM + 1) + threadIdx.y + j];
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char* argv[]) {
 
-  const int nx = 1024;
-  const int ny = 1024;
-  const int mem_size = nx*ny*sizeof(float);
+	const int nx = 1024;
+	const int ny = 1024;
+	const int mem_size = nx * ny * sizeof(float);
 
-  dim3 dimGrid(nx/TILE_DIM, ny/TILE_DIM, 1);
-  dim3 dimBlock(TILE_DIM, BLOCK_ROWS, 1);
+	dim3 dimGrid(nx / TILE_DIM, ny / TILE_DIM, 1);
+	dim3 dimBlock(TILE_DIM, BLOCK_ROWS, 1);
 
-  int devId;
-  cudaCheck(cudaGetDevice(&devId));
-  printf("\nDevice number: %d",devId);
-  
-  cudaDeviceProp prop;
-  cudaCheck(cudaGetDeviceProperties(&prop, devId));
-  printf("\nDevice : %s\n", prop.name);
-  printf("Matrix size: %d %d, Block size: %d %d, Tile size: %d %d\n", 
-         nx, ny, TILE_DIM, BLOCK_ROWS, TILE_DIM, TILE_DIM);
-  printf("dimGrid: %d %d %d. dimBlock: %d %d %d\n",
-         dimGrid.x, dimGrid.y, dimGrid.z, dimBlock.x, dimBlock.y, dimBlock.z);
-  
-  cudaCheck( cudaSetDevice(devId) );
+	int devId;
+	cudaCheck(cudaGetDevice(&devId));
+	printf("\nDevice number: %d", devId);
 
-  float *h_idata = (float*)malloc(mem_size);
-  float *h_cdata = (float*)malloc(mem_size);
-  float *h_tdata = (float*)malloc(mem_size);
-  float *gold    = (float*)malloc(mem_size);
-  
-  float *d_idata, *d_cdata, *d_tdata;
-  cudaCheck( cudaMalloc(&d_idata, mem_size) );
-  cudaCheck( cudaMalloc(&d_cdata, mem_size) );
-  cudaCheck( cudaMalloc(&d_tdata, mem_size) );
+	cudaDeviceProp prop;
+	cudaCheck(cudaGetDeviceProperties(&prop, devId));
+	printf("\nDevice : %s\n", prop.name);
+	printf("Matrix size: %d %d, Block size: %d %d, Tile size: %d %d\n",
+		nx, ny, TILE_DIM, BLOCK_ROWS, TILE_DIM, TILE_DIM);
+	printf("dimGrid: %d %d %d. dimBlock: %d %d %d\n",
+		dimGrid.x, dimGrid.y, dimGrid.z, dimBlock.x, dimBlock.y, dimBlock.z);
 
-  // check parameters and calculate execution configuration
-  if (nx % TILE_DIM || ny % TILE_DIM) {
-    printf("nx and ny must be a multiple of TILE_DIM\n");
-    goto error_exit;
-  }
+	cudaCheck(cudaSetDevice(devId));
 
-  if (TILE_DIM % BLOCK_ROWS) {
-    printf("TILE_DIM must be a multiple of BLOCK_ROWS\n");
-    goto error_exit;
-  }
-    
-  // host
-  for (int j = 0; j < ny; j++)
-    for (int i = 0; i < nx; i++)
-      h_idata[j*nx + i] = j*nx + i;
+	float* h_idata = (float*)malloc(mem_size);
+	float* h_cdata = (float*)malloc(mem_size);
+	float* h_tdata = (float*)malloc(mem_size);
+	float* gold = (float*)malloc(mem_size);
 
-  // correct result for error checking
-  for (int j = 0; j < ny; j++)
-    for (int i = 0; i < nx; i++)
-      gold[j*nx + i] = h_idata[i*nx + j];
-  
-  // device
-  cudaCheck( cudaMemcpy(d_idata, h_idata, mem_size, cudaMemcpyHostToDevice) );
-  
-  // events for timing
-  cudaEvent_t startEvent, stopEvent;
-  cudaCheck( cudaEventCreate(&startEvent) );
-  cudaCheck( cudaEventCreate(&stopEvent) );
-  float ms;
+	float* d_idata, * d_cdata, * d_tdata;
+	cudaCheck(cudaMalloc(&d_idata, mem_size));
+	cudaCheck(cudaMalloc(&d_cdata, mem_size));
+	cudaCheck(cudaMalloc(&d_tdata, mem_size));
 
-  // ------------
-  // time kernels
-  // ------------
-  printf("%25s%25s\n", "Routine", "Bandwidth (GB/s)");
-  
-  // ----
-  // copy 
-  // ----
-  printf("%25s", "copy");
-  cudaCheck( cudaMemset(d_cdata, 0, mem_size) );
-  // warm up
-  copy<<<dimGrid, dimBlock>>>(d_cdata, d_idata);
-  cudaCheck( cudaEventRecord(startEvent, 0) );
-  for (int i = 0; i < NUM_REPS; i++)
-     copy<<<dimGrid, dimBlock>>>(d_cdata, d_idata);
-  cudaCheck( cudaEventRecord(stopEvent, 0) );
-  cudaCheck( cudaEventSynchronize(stopEvent) );
-  cudaCheck( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
-  cudaCheck( cudaMemcpy(h_cdata, d_cdata, mem_size, cudaMemcpyDeviceToHost) );
-  postprocess(h_idata, h_cdata, nx*ny, ms);
+	// check parameters and calculate execution configuration
+	if (nx % TILE_DIM || ny % TILE_DIM) {
+		printf("nx and ny must be a multiple of TILE_DIM\n");
+		goto error_exit;
+	}
 
-  // ----
-  // copy optimized
-  // ----
-  //dim3 dimBlock2(TILE_DIM, TILE_DIM, 1);
-  printf("%25s", "copyOptimized");
-  cudaCheck(cudaMemset(d_cdata, 0, mem_size));
-  // warm up
-  copyOptimized << <dimGrid, dimBlock >> > (d_cdata, d_idata);
-  cudaCheck(cudaEventRecord(startEvent, 0));
-  for (int i = 0; i < NUM_REPS; i++)
-      copyOptimized << <dimGrid, dimBlock >> > (d_cdata, d_idata);
-  cudaCheck(cudaEventRecord(stopEvent, 0));
-  cudaCheck(cudaEventSynchronize(stopEvent));
-  cudaCheck(cudaEventElapsedTime(&ms, startEvent, stopEvent));
-  cudaCheck(cudaMemcpy(h_cdata, d_cdata, mem_size, cudaMemcpyDeviceToHost));
-  postprocess(h_idata, h_cdata, nx * ny, ms);
+	if (TILE_DIM % BLOCK_ROWS) {
+		printf("TILE_DIM must be a multiple of BLOCK_ROWS\n");
+		goto error_exit;
+	}
 
-  // --------------
-  // transposeNaive 
-  // --------------
-  printf("%25s", "naive transpose");
-  cudaCheck( cudaMemset(d_tdata, 0, mem_size) );
-  // warmup
-  transposeNaive<<<dimGrid, dimBlock>>>(d_tdata, d_idata);
-  cudaCheck( cudaEventRecord(startEvent, 0) );
-  for (int i = 0; i < NUM_REPS; i++)
-     transposeNaive<<<dimGrid, dimBlock>>>(d_tdata, d_idata);
-  cudaCheck( cudaEventRecord(stopEvent, 0) );
-  cudaCheck( cudaEventSynchronize(stopEvent) );
-  cudaCheck( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
-  cudaCheck( cudaMemcpy(h_tdata, d_tdata, mem_size, cudaMemcpyDeviceToHost) );
-  postprocess(gold, h_tdata, nx * ny, ms);
+	// host
+	for (int j = 0; j < ny; j++)
+		for (int i = 0; i < nx; i++)
+			h_idata[j * nx + i] = j * nx + i;
 
-  // --------------
-  // transposeOptimized 
-  // --------------
-  printf("%25s", "optimized transpose");
-  cudaCheck(cudaMemset(d_tdata, 0, mem_size));
-  // warmup
-  transposeOptimized << <dimGrid, dimBlock >> > (d_tdata, d_idata);
-  cudaCheck(cudaEventRecord(startEvent, 0));
-  for (int i = 0; i < NUM_REPS; i++)
-      transposeOptimized << <dimGrid, dimBlock >> > (d_tdata, d_idata);
-  cudaCheck(cudaEventRecord(stopEvent, 0));
-  cudaCheck(cudaEventSynchronize(stopEvent));
-  cudaCheck(cudaEventElapsedTime(&ms, startEvent, stopEvent));
-  cudaCheck(cudaMemcpy(h_tdata, d_tdata, mem_size, cudaMemcpyDeviceToHost));
-  postprocess(gold, h_tdata, nx * ny, ms);
+	// correct result for error checking
+	for (int j = 0; j < ny; j++)
+		for (int i = 0; i < nx; i++)
+			gold[j * nx + i] = h_idata[i * nx + j];
+
+	// device
+	cudaCheck(cudaMemcpy(d_idata, h_idata, mem_size, cudaMemcpyHostToDevice));
+
+	// events for timing
+	cudaEvent_t startEvent, stopEvent;
+	cudaCheck(cudaEventCreate(&startEvent));
+	cudaCheck(cudaEventCreate(&stopEvent));
+	float ms;
+
+	// ------------
+	// time kernels
+	// ------------
+	printf("%25s%25s\n", "Routine", "Bandwidth (GB/s)");
+
+	// ----
+	// copy 
+	// ----
+	printf("%25s", "copy");
+	cudaCheck(cudaMemset(d_cdata, 0, mem_size));
+	// warm up
+	copy << <dimGrid, dimBlock >> > (d_cdata, d_idata);
+	cudaCheck(cudaEventRecord(startEvent, 0));
+	for (int i = 0; i < NUM_REPS; i++)
+		copy << <dimGrid, dimBlock >> > (d_cdata, d_idata);
+	cudaCheck(cudaEventRecord(stopEvent, 0));
+	cudaCheck(cudaEventSynchronize(stopEvent));
+	cudaCheck(cudaEventElapsedTime(&ms, startEvent, stopEvent));
+	cudaCheck(cudaMemcpy(h_cdata, d_cdata, mem_size, cudaMemcpyDeviceToHost));
+	postprocess(h_idata, h_cdata, nx * ny, ms);
+
+	// ----
+	// copy optimized
+	// ----
+	//dim3 dimBlock2(TILE_DIM, TILE_DIM, 1);
+	printf("%25s", "copyOptimized");
+	cudaCheck(cudaMemset(d_cdata, 0, mem_size));
+	// warm up
+	copyOptimized << <dimGrid, dimBlock >> > (d_cdata, d_idata);
+	cudaCheck(cudaEventRecord(startEvent, 0));
+	for (int i = 0; i < NUM_REPS; i++)
+		copyOptimized << <dimGrid, dimBlock >> > (d_cdata, d_idata);
+	cudaCheck(cudaEventRecord(stopEvent, 0));
+	cudaCheck(cudaEventSynchronize(stopEvent));
+	cudaCheck(cudaEventElapsedTime(&ms, startEvent, stopEvent));
+	cudaCheck(cudaMemcpy(h_cdata, d_cdata, mem_size, cudaMemcpyDeviceToHost));
+	postprocess(h_idata, h_cdata, nx * ny, ms);
+
+	// --------------
+	// transposeNaive 
+	// --------------
+	printf("%25s", "naive transpose");
+	cudaCheck(cudaMemset(d_tdata, 0, mem_size));
+	// warmup
+	transposeNaive << <dimGrid, dimBlock >> > (d_tdata, d_idata);
+	cudaCheck(cudaEventRecord(startEvent, 0));
+	for (int i = 0; i < NUM_REPS; i++)
+		transposeNaive << <dimGrid, dimBlock >> > (d_tdata, d_idata);
+	cudaCheck(cudaEventRecord(stopEvent, 0));
+	cudaCheck(cudaEventSynchronize(stopEvent));
+	cudaCheck(cudaEventElapsedTime(&ms, startEvent, stopEvent));
+	cudaCheck(cudaMemcpy(h_tdata, d_tdata, mem_size, cudaMemcpyDeviceToHost));
+	postprocess(gold, h_tdata, nx * ny, ms);
+
+	// --------------
+	// transposeOptimized 
+	// --------------
+	printf("%25s", "optimized transpose");
+	cudaCheck(cudaMemset(d_tdata, 0, mem_size));
+	// warmup
+	transposeOptimized << <dimGrid, dimBlock >> > (d_tdata, d_idata);
+	cudaCheck(cudaEventRecord(startEvent, 0));
+	for (int i = 0; i < NUM_REPS; i++)
+		transposeOptimized << <dimGrid, dimBlock >> > (d_tdata, d_idata);
+	cudaCheck(cudaEventRecord(stopEvent, 0));
+	cudaCheck(cudaEventSynchronize(stopEvent));
+	cudaCheck(cudaEventElapsedTime(&ms, startEvent, stopEvent));
+	cudaCheck(cudaMemcpy(h_tdata, d_tdata, mem_size, cudaMemcpyDeviceToHost));
+	postprocess(gold, h_tdata, nx * ny, ms);
 
 
 error_exit:
-  // cleanup
-  cudaCheck( cudaEventDestroy(startEvent) );
-  cudaCheck( cudaEventDestroy(stopEvent) );
-  cudaCheck( cudaFree(d_tdata) );
-  cudaCheck( cudaFree(d_cdata) );
-  cudaCheck( cudaFree(d_idata) );
-  free(h_idata);
-  free(h_tdata);
-  free(h_cdata);
-  free(gold);
+	// cleanup
+	cudaCheck(cudaEventDestroy(startEvent));
+	cudaCheck(cudaEventDestroy(stopEvent));
+	cudaCheck(cudaFree(d_tdata));
+	cudaCheck(cudaFree(d_cdata));
+	cudaCheck(cudaFree(d_idata));
+	free(h_idata);
+	free(h_tdata);
+	free(h_cdata);
+	free(gold);
 }
