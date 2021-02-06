@@ -18,5 +18,6 @@ endif(NOT CMAKE_BUILD_TYPE)
 
 add_executable(transpose transpose.cu)
 add_executable(deviceQuery deviceQuery.cu)
+add_executable(transposeNS transposeNS.cu)
 
 message(STATUS "build type:  ${CMAKE_BUILD_TYPE}")

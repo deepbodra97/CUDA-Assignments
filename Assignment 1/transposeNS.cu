@@ -55,12 +55,11 @@ void postprocess(const float* ref, const float* res, int n, float ms) {
 __global__ void copy(float* odata, const float* idata, int nx, int ny) {
 	int x = blockIdx.x * TILE_DIM + threadIdx.x;
 	int y = blockIdx.y * TILE_DIM + threadIdx.y;
-	int width = nx;
 
 	if (x<nx && y<ny){
 		for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS){
-			if ((y + j) * width + x < nx*ny){
-				odata[(y + j) * width + x] = idata[(y + j) * width + x];
+			if (y + j < ny && x < nx){
+				odata[(y + j) * nx + x] = idata[(y + j) * nx + x];
 			}
 		}
 	}
@@ -76,14 +75,14 @@ __global__ void copyOptimized(float* odata, const float* idata, int nx, int ny) 
 
 	if (x<nx && y<ny){
 		for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS){
-			if ((y + j) * width + x < nx * ny) {
+			if (y + j < ny && x < nx) {
 				cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x] = idata[(y + j) * width + x];
 			}
 		}
 		__syncthreads();
 
 		for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
-			if ((y + j) * width + x < nx * ny) {
+			if (y + j < ny && x < nx) {
 				odata[(y + j) * width + x] = cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x];
 			}
 		}
@@ -94,12 +93,11 @@ __global__ void copyOptimized(float* odata, const float* idata, int nx, int ny) 
 __global__ void transposeNaive(float* odata, const float* idata, int nx, int ny) {
 	int x = blockIdx.x * TILE_DIM + threadIdx.x;
 	int y = blockIdx.y * TILE_DIM + threadIdx.y;
-	int widthInput = nx, widthOutput = ny;
 
 	if (x<nx && y<ny){
 		for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS){
-			if ((y + j) * widthInput + x < nx * ny) {
-				odata[x * widthOutput + (y + j)] = idata[(y + j) * widthInput + x];
+			if (y + j < ny && x < nx) {
+				odata[x * ny + (y + j)] = idata[(y + j) * nx + x];
 			}
 		}
 	}
@@ -111,24 +109,23 @@ __global__ void transposeOptimized(float* odata, const float* idata, int nx, int
 
 	int x = blockIdx.x * TILE_DIM + threadIdx.x;
 	int y = blockIdx.y * TILE_DIM + threadIdx.y;
-	int widthInput = nx, widthOutput = ny;
 
 	if (x < nx && y < ny) {
-		for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS){
-			if ((y + j) * widthInput + x < nx * ny) {
-				cache[(threadIdx.y + j) * (TILE_DIM + 1) + threadIdx.x] = idata[(y + j) * widthInput + x];
+		for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+			if (y + j < ny && x < nx) {
+				cache[(threadIdx.y + j) * (TILE_DIM + 1) + threadIdx.x] = idata[(y + j) * nx + x];
 			}
 		}
+	}
 
-		__syncthreads();
+	__syncthreads();
 
-		x = blockIdx.y * TILE_DIM + threadIdx.x;
-		y = blockIdx.x * TILE_DIM + threadIdx.y;
+	x = blockIdx.y * TILE_DIM + threadIdx.x;
+	y = blockIdx.x * TILE_DIM + threadIdx.y;
 
-		for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS){
-			if ((y + j) * widthOutput + x < nx * ny) {
-				odata[(y + j) * widthOutput + x] = cache[threadIdx.x * (TILE_DIM + 1) + threadIdx.y + j];
-			}
+	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS){
+		if (y + j < nx && x < ny) {
+			odata[(y + j) * ny + x] = cache[threadIdx.x * (TILE_DIM + 1) + threadIdx.y + j];
 		}
 	}
 }
