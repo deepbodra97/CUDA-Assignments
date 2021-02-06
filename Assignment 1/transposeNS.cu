@@ -56,11 +56,9 @@ __global__ void copy(float* odata, const float* idata, int nx, int ny) {
 	int x = blockIdx.x * TILE_DIM + threadIdx.x;
 	int y = blockIdx.y * TILE_DIM + threadIdx.y;
 
-	if (x<nx && y<ny){
-		for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS){
-			if (y + j < ny && x < nx){
-				odata[(y + j) * nx + x] = idata[(y + j) * nx + x];
-			}
+	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS){
+		if (y + j < ny && x < nx){
+			odata[(y + j) * nx + x] = idata[(y + j) * nx + x];
 		}
 	}
 }
@@ -73,18 +71,16 @@ __global__ void copyOptimized(float* odata, const float* idata, int nx, int ny) 
 	int y = blockIdx.y * TILE_DIM + threadIdx.y;
 	int width = nx;
 
-	if (x<nx && y<ny){
-		for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS){
-			if (y + j < ny && x < nx) {
-				cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x] = idata[(y + j) * width + x];
-			}
+	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS){
+		if (y + j < ny && x < nx) {
+			cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x] = idata[(y + j) * width + x];
 		}
-		__syncthreads();
+	}
+	__syncthreads();
 
-		for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
-			if (y + j < ny && x < nx) {
-				odata[(y + j) * width + x] = cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x];
-			}
+	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+		if (y + j < ny && x < nx) {
+			odata[(y + j) * width + x] = cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x];
 		}
 	}
 }
@@ -110,11 +106,9 @@ __global__ void transposeOptimized(float* odata, const float* idata, int nx, int
 	int x = blockIdx.x * TILE_DIM + threadIdx.x;
 	int y = blockIdx.y * TILE_DIM + threadIdx.y;
 
-	if (x < nx && y < ny) {
-		for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
-			if (y + j < ny && x < nx) {
-				cache[(threadIdx.y + j) * (TILE_DIM + 1) + threadIdx.x] = idata[(y + j) * nx + x];
-			}
+	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+		if (y + j < ny && x < nx) {
+			cache[(threadIdx.y + j) * (TILE_DIM + 1) + threadIdx.x] = idata[(y + j) * nx + x];
 		}
 	}
 
@@ -132,8 +126,8 @@ __global__ void transposeOptimized(float* odata, const float* idata, int nx, int
 
 int main(int argc, char* argv[]) {
 
-	const int nx = 1027;
-	const int ny = 1019;
+	const int nx = 1025;
+	const int ny = 1001;
 	const int mem_size = nx * ny * sizeof(float);
 
 	dim3 dimGrid((nx - 1) / TILE_DIM + 1, (ny - 1) / TILE_DIM + 1, 1);
@@ -162,17 +156,6 @@ int main(int argc, char* argv[]) {
 	cudaCheck(cudaMalloc(&d_idata, mem_size));
 	cudaCheck(cudaMalloc(&d_cdata, mem_size));
 	cudaCheck(cudaMalloc(&d_tdata, mem_size));
-
-	// check parameters and calculate execution configuration
-	/*if (nx % TILE_DIM || ny % TILE_DIM) {
-		printf("nx and ny must be a multiple of TILE_DIM\n");
-		goto error_exit;
-	}*/
-
-	/*if (TILE_DIM % BLOCK_ROWS) {
-		printf("TILE_DIM must be a multiple of BLOCK_ROWS\n");
-		goto error_exit;
-	}*/
 
 	// host
 	for (int j = 0; j < ny; j++)
