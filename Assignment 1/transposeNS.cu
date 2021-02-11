@@ -129,7 +129,7 @@ int main(int argc, char* argv[]) {
 
 	int m, n;
 
-	cout << "Enter m and n separated by a space for an mxn matrix";
+	cout << "Enter m and n separated by a space for an mxn matrix (m rows, n cols)"<<endl;
 
 	cin >> m;
 	cin >> n;
