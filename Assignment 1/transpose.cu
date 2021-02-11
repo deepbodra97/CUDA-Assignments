@@ -63,7 +63,7 @@ __global__ void copy(float* odata, const float* idata) {
 
 // optimized copy kernel
 __global__ void copyOptimized(float* odata, const float* idata) {
-	__shared__ float cache[TILE_DIM * TILE_DIM];
+	__shared__ float cache[TILE_DIM * TILE_DIM]; // 1D shared memory
 
 	int x = blockIdx.x * TILE_DIM + threadIdx.x;
 	int y = blockIdx.y * TILE_DIM + threadIdx.y;
@@ -72,10 +72,10 @@ __global__ void copyOptimized(float* odata, const float* idata) {
 	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
 		cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x] = idata[(y + j) * width + x];
 
-	__syncthreads();
+	__syncthreads(); // wait for other threads to finish
 
 	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
-		odata[(y + j) * width + x] = cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x];
+		odata[(y + j) * width + x] = cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x]; // coalesced writes to odata and fast reads from shared memory
 }
 
 // Simplest transpose
@@ -90,22 +90,22 @@ __global__ void transposeNaive(float* odata, const float* idata) {
 
 // Optimized transpose
 __global__ void transposeOptimized(float* odata, const float* idata) {
-	__shared__ float cache[TILE_DIM * (TILE_DIM + 1)];
+	__shared__ float cache[TILE_DIM * (TILE_DIM + 1)]; // 1D shared memory with extra bytes to avoid bank conflict
 
 	int x = blockIdx.x * TILE_DIM + threadIdx.x;
 	int y = blockIdx.y * TILE_DIM + threadIdx.y;
 	int width = gridDim.x * TILE_DIM;
 
 	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
-		cache[(threadIdx.y + j) * (TILE_DIM + 1) + threadIdx.x] = idata[(y + j) * width + x];
+		cache[(threadIdx.y + j) * (TILE_DIM + 1) + threadIdx.x] = idata[(y + j) * width + x]; // coalesced reads from input
 
 	__syncthreads();
 
-	x = blockIdx.y * TILE_DIM + threadIdx.x;
+	x = blockIdx.y * TILE_DIM + threadIdx.x; // swap the blockIdx of the TILE for transpose
 	y = blockIdx.x * TILE_DIM + threadIdx.y;
 
 	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
-		odata[(y + j) * width + x] = cache[threadIdx.x * (TILE_DIM + 1) + threadIdx.y + j];
+		odata[(y + j) * width + x] = cache[threadIdx.x * (TILE_DIM + 1) + threadIdx.y + j]; // coalesced writes to output
 }
 
 int main(int argc, char* argv[]) {

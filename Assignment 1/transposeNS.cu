@@ -72,14 +72,14 @@ __global__ void copyOptimized(float* odata, const float* idata, int nx, int ny) 
 	int width = nx;
 
 	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS){
-		if (y + j < ny && x < nx) {
+		if (y + j < ny && x < nx) { // boundary condition
 			cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x] = idata[(y + j) * width + x];
 		}
 	}
 	__syncthreads();
 
 	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
-		if (y + j < ny && x < nx) {
+		if (y + j < ny && x < nx) { // boundary condition
 			odata[(y + j) * width + x] = cache[(threadIdx.y + j) * TILE_DIM + threadIdx.x];
 		}
 	}
@@ -107,7 +107,7 @@ __global__ void transposeOptimized(float* odata, const float* idata, int nx, int
 	int y = blockIdx.y * TILE_DIM + threadIdx.y;
 
 	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
-		if (y + j < ny && x < nx) {
+		if (y + j < ny && x < nx) { // boundary condition
 			cache[(threadIdx.y + j) * (TILE_DIM + 1) + threadIdx.x] = idata[(y + j) * nx + x];
 		}
 	}
@@ -118,7 +118,7 @@ __global__ void transposeOptimized(float* odata, const float* idata, int nx, int
 	y = blockIdx.x * TILE_DIM + threadIdx.y;
 
 	for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS){
-		if (y + j < nx && x < ny) {
+		if (y + j < nx && x < ny) { // boundary condition
 			odata[(y + j) * ny + x] = cache[threadIdx.x * (TILE_DIM + 1) + threadIdx.y + j];
 		}
 	}
@@ -126,136 +126,140 @@ __global__ void transposeOptimized(float* odata, const float* idata, int nx, int
 
 int main(int argc, char* argv[]) {
 
-	const int nx = 1025;
-	const int ny = 1001;
-	const int mem_size = nx * ny * sizeof(float);
+	int inputs[3][2] = { {1024, 1024}, {1021, 2046}, {2049, 1021} };
 
-	dim3 dimGrid((nx - 1) / TILE_DIM + 1, (ny - 1) / TILE_DIM + 1, 1);
-	dim3 dimBlock(TILE_DIM, BLOCK_ROWS, 1);
+	for (int i = 0; i < sizeof(inputs)/sizeof(inputs[0]); i++) {
+		const int nx = inputs[i][0];
+		const int ny = inputs[i][1];
+		const int mem_size = nx * ny * sizeof(float);
+		
+		dim3 dimGrid((nx - 1) / TILE_DIM + 1, (ny - 1) / TILE_DIM + 1, 1);
+		dim3 dimBlock(TILE_DIM, BLOCK_ROWS, 1);
 
-	int devId;
-	cudaCheck(cudaGetDevice(&devId));
-	printf("\nDevice number: %d", devId);
+		int devId;
+		cudaCheck(cudaGetDevice(&devId));
+		printf("\nDevice number: %d", devId);
 
-	cudaDeviceProp prop;
-	cudaCheck(cudaGetDeviceProperties(&prop, devId));
-	printf("\nDevice : %s\n", prop.name);
-	printf("Matrix size: %d %d, Block size: %d %d, Tile size: %d %d\n",
-		nx, ny, TILE_DIM, BLOCK_ROWS, TILE_DIM, TILE_DIM);
-	printf("dimGrid: %d %d %d. dimBlock: %d %d %d\n",
-		dimGrid.x, dimGrid.y, dimGrid.z, dimBlock.x, dimBlock.y, dimBlock.z);
+		cudaDeviceProp prop;
+		cudaCheck(cudaGetDeviceProperties(&prop, devId));
+		printf("\nDevice : %s\n", prop.name);
+		printf("Matrix size: %d %d, Block size: %d %d, Tile size: %d %d\n",
+			nx, ny, TILE_DIM, BLOCK_ROWS, TILE_DIM, TILE_DIM);
+		printf("dimGrid: %d %d %d. dimBlock: %d %d %d\n",
+			dimGrid.x, dimGrid.y, dimGrid.z, dimBlock.x, dimBlock.y, dimBlock.z);
 
-	cudaCheck(cudaSetDevice(devId));
+		cudaCheck(cudaSetDevice(devId));
 
-	float* h_idata = (float*)malloc(mem_size);
-	float* h_cdata = (float*)malloc(mem_size);
-	float* h_tdata = (float*)malloc(mem_size);
-	float* gold = (float*)malloc(mem_size);
+		float* h_idata = (float*)malloc(mem_size);
+		float* h_cdata = (float*)malloc(mem_size);
+		float* h_tdata = (float*)malloc(mem_size);
+		float* gold = (float*)malloc(mem_size);
 
-	float* d_idata, * d_cdata, * d_tdata;
-	cudaCheck(cudaMalloc(&d_idata, mem_size));
-	cudaCheck(cudaMalloc(&d_cdata, mem_size));
-	cudaCheck(cudaMalloc(&d_tdata, mem_size));
+		float* d_idata, * d_cdata, * d_tdata;
+		cudaCheck(cudaMalloc(&d_idata, mem_size));
+		cudaCheck(cudaMalloc(&d_cdata, mem_size));
+		cudaCheck(cudaMalloc(&d_tdata, mem_size));
 
-	// host
-	for (int j = 0; j < ny; j++)
-		for (int i = 0; i < nx; i++)
-			h_idata[j * nx + i] = j * nx + i;
+		// host
+		for (int j = 0; j < ny; j++)
+			for (int i = 0; i < nx; i++)
+				h_idata[j * nx + i] = j * nx + i;
 
-	// correct result for error checking
-	for (int j = 0; j < nx; j++)
-		for (int i = 0; i < ny; i++)
-			gold[j * ny + i] = h_idata[i * nx + j];
+		// correct result for error checking
+		for (int j = 0; j < nx; j++)
+			for (int i = 0; i < ny; i++)
+				gold[j * ny + i] = h_idata[i * nx + j];
 
-	// device
-	cudaCheck(cudaMemcpy(d_idata, h_idata, mem_size, cudaMemcpyHostToDevice));
+		// device
+		cudaCheck(cudaMemcpy(d_idata, h_idata, mem_size, cudaMemcpyHostToDevice));
 
-	// events for timing
-	cudaEvent_t startEvent, stopEvent;
-	cudaCheck(cudaEventCreate(&startEvent));
-	cudaCheck(cudaEventCreate(&stopEvent));
-	float ms;
+		// events for timing
+		cudaEvent_t startEvent, stopEvent;
+		cudaCheck(cudaEventCreate(&startEvent));
+		cudaCheck(cudaEventCreate(&stopEvent));
+		float ms;
 
-	// ------------
-	// time kernels
-	// ------------
-	printf("%25s%25s\n", "Routine", "Bandwidth (GB/s)");
+		// ------------
+		// time kernels
+		// ------------
+		printf("%25s%25s\n", "Routine", "Bandwidth (GB/s)");
 
-	// ----
-	// copy 
-	// ----
-	printf("%25s", "copy");
-	cudaCheck(cudaMemset(d_cdata, 0, mem_size));
-	// warm up
-	copy << <dimGrid, dimBlock >> > (d_cdata, d_idata, nx, ny);
-	cudaCheck(cudaEventRecord(startEvent, 0));
-	for (int i = 0; i < NUM_REPS; i++)
+		// ----
+		// copy 
+		// ----
+		printf("%25s", "copy");
+		cudaCheck(cudaMemset(d_cdata, 0, mem_size));
+		// warm up
 		copy << <dimGrid, dimBlock >> > (d_cdata, d_idata, nx, ny);
-	cudaCheck(cudaEventRecord(stopEvent, 0));
-	cudaCheck(cudaEventSynchronize(stopEvent));
-	cudaCheck(cudaEventElapsedTime(&ms, startEvent, stopEvent));
-	cudaCheck(cudaMemcpy(h_cdata, d_cdata, mem_size, cudaMemcpyDeviceToHost));
-	postprocess(h_idata, h_cdata, nx * ny, ms);
+		cudaCheck(cudaEventRecord(startEvent, 0));
+		for (int i = 0; i < NUM_REPS; i++)
+			copy << <dimGrid, dimBlock >> > (d_cdata, d_idata, nx, ny);
+		cudaCheck(cudaEventRecord(stopEvent, 0));
+		cudaCheck(cudaEventSynchronize(stopEvent));
+		cudaCheck(cudaEventElapsedTime(&ms, startEvent, stopEvent));
+		cudaCheck(cudaMemcpy(h_cdata, d_cdata, mem_size, cudaMemcpyDeviceToHost));
+		postprocess(h_idata, h_cdata, nx * ny, ms);
 
-	// ----
-	// copy optimized
-	// ----
-	//dim3 dimBlock2(TILE_DIM, TILE_DIM, 1);
-	printf("%25s", "copyOptimized");
-	cudaCheck(cudaMemset(d_cdata, 0, mem_size));
-	// warm up
-	copyOptimized << <dimGrid, dimBlock >> > (d_cdata, d_idata, nx, ny);
-	cudaCheck(cudaEventRecord(startEvent, 0));
-	for (int i = 0; i < NUM_REPS; i++)
+		// ----
+		// copy optimized
+		// ----
+		//dim3 dimBlock2(TILE_DIM, TILE_DIM, 1);
+		printf("%25s", "copyOptimized");
+		cudaCheck(cudaMemset(d_cdata, 0, mem_size));
+		// warm up
 		copyOptimized << <dimGrid, dimBlock >> > (d_cdata, d_idata, nx, ny);
-	cudaCheck(cudaEventRecord(stopEvent, 0));
-	cudaCheck(cudaEventSynchronize(stopEvent));
-	cudaCheck(cudaEventElapsedTime(&ms, startEvent, stopEvent));
-	cudaCheck(cudaMemcpy(h_cdata, d_cdata, mem_size, cudaMemcpyDeviceToHost));
-	postprocess(h_idata, h_cdata, nx * ny, ms);
+		cudaCheck(cudaEventRecord(startEvent, 0));
+		for (int i = 0; i < NUM_REPS; i++)
+			copyOptimized << <dimGrid, dimBlock >> > (d_cdata, d_idata, nx, ny);
+		cudaCheck(cudaEventRecord(stopEvent, 0));
+		cudaCheck(cudaEventSynchronize(stopEvent));
+		cudaCheck(cudaEventElapsedTime(&ms, startEvent, stopEvent));
+		cudaCheck(cudaMemcpy(h_cdata, d_cdata, mem_size, cudaMemcpyDeviceToHost));
+		postprocess(h_idata, h_cdata, nx * ny, ms);
 
-	// --------------
-	// transposeNaive 
-	// --------------
-	printf("%25s", "naive transpose");
-	cudaCheck(cudaMemset(d_tdata, 0, mem_size));
-	// warmup
-	transposeNaive << <dimGrid, dimBlock >> > (d_tdata, d_idata, nx, ny);
-	cudaCheck(cudaEventRecord(startEvent, 0));
-	for (int i = 0; i < NUM_REPS; i++)
+		// --------------
+		// transposeNaive 
+		// --------------
+		printf("%25s", "naive transpose");
+		cudaCheck(cudaMemset(d_tdata, 0, mem_size));
+		// warmup
 		transposeNaive << <dimGrid, dimBlock >> > (d_tdata, d_idata, nx, ny);
-	cudaCheck(cudaEventRecord(stopEvent, 0));
-	cudaCheck(cudaEventSynchronize(stopEvent));
-	cudaCheck(cudaEventElapsedTime(&ms, startEvent, stopEvent));
-	cudaCheck(cudaMemcpy(h_tdata, d_tdata, mem_size, cudaMemcpyDeviceToHost));
-	postprocess(gold, h_tdata, nx * ny, ms);
+		cudaCheck(cudaEventRecord(startEvent, 0));
+		for (int i = 0; i < NUM_REPS; i++)
+			transposeNaive << <dimGrid, dimBlock >> > (d_tdata, d_idata, nx, ny);
+		cudaCheck(cudaEventRecord(stopEvent, 0));
+		cudaCheck(cudaEventSynchronize(stopEvent));
+		cudaCheck(cudaEventElapsedTime(&ms, startEvent, stopEvent));
+		cudaCheck(cudaMemcpy(h_tdata, d_tdata, mem_size, cudaMemcpyDeviceToHost));
+		postprocess(gold, h_tdata, nx * ny, ms);
 
-	// --------------
-	// transposeOptimized 
-	// --------------
-	printf("%25s", "optimized transpose");
-	cudaCheck(cudaMemset(d_tdata, 0, mem_size));
-	// warmup
-	transposeOptimized << <dimGrid, dimBlock >> > (d_tdata, d_idata, nx, ny);
-	cudaCheck(cudaEventRecord(startEvent, 0));
-	for (int i = 0; i < NUM_REPS; i++)
+		// --------------
+		// transposeOptimized 
+		// --------------
+		printf("%25s", "optimized transpose");
+		cudaCheck(cudaMemset(d_tdata, 0, mem_size));
+		// warmup
 		transposeOptimized << <dimGrid, dimBlock >> > (d_tdata, d_idata, nx, ny);
-	cudaCheck(cudaEventRecord(stopEvent, 0));
-	cudaCheck(cudaEventSynchronize(stopEvent));
-	cudaCheck(cudaEventElapsedTime(&ms, startEvent, stopEvent));
-	cudaCheck(cudaMemcpy(h_tdata, d_tdata, mem_size, cudaMemcpyDeviceToHost));
-	postprocess(gold, h_tdata, nx * ny, ms);
+		cudaCheck(cudaEventRecord(startEvent, 0));
+		for (int i = 0; i < NUM_REPS; i++)
+			transposeOptimized << <dimGrid, dimBlock >> > (d_tdata, d_idata, nx, ny);
+		cudaCheck(cudaEventRecord(stopEvent, 0));
+		cudaCheck(cudaEventSynchronize(stopEvent));
+		cudaCheck(cudaEventElapsedTime(&ms, startEvent, stopEvent));
+		cudaCheck(cudaMemcpy(h_tdata, d_tdata, mem_size, cudaMemcpyDeviceToHost));
+		postprocess(gold, h_tdata, nx * ny, ms);
 
 
-error_exit:
-	// cleanup
-	cudaCheck(cudaEventDestroy(startEvent));
-	cudaCheck(cudaEventDestroy(stopEvent));
-	cudaCheck(cudaFree(d_tdata));
-	cudaCheck(cudaFree(d_cdata));
-	cudaCheck(cudaFree(d_idata));
-	free(h_idata);
-	free(h_tdata);
-	free(h_cdata);
-	free(gold);
+	error_exit:
+		// cleanup
+		cudaCheck(cudaEventDestroy(startEvent));
+		cudaCheck(cudaEventDestroy(stopEvent));
+		cudaCheck(cudaFree(d_tdata));
+		cudaCheck(cudaFree(d_cdata));
+		cudaCheck(cudaFree(d_idata));
+		free(h_idata);
+		free(h_tdata);
+		free(h_cdata);
+		free(gold);
+	}
 }
