@@ -33,7 +33,7 @@ How to use cmake to create a makefile
   4. compile:  make
   5. execute: 
        ./deviceQuery 
-       ./transpose 
+       ./transpose
 
 
 

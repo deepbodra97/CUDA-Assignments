@@ -1,0 +1,3 @@
+./deviceQuery
+./transpose
+./transposeNS
